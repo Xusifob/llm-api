@@ -1,0 +1,41 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      MODEL: llama3.1
+      OLLAMA_HOST: ${OLLAMA_HOST}
+      ALEMBIC_CONFIG: /app/alembic.ini
+    env_file:
+      - .env
+    depends_on:
+      - ollama
+    volumes:
+      - ./app/:/app/app
+      - ./requirements.txt:/app/requirements.txt
+      - ./alembic.ini:/app/alembic.ini
+      - ./sqlite.db:/data/sqlite.db   # Mount local sqlite.db into /data/sqlite.db inside container
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    env_file:
+      - .env
+    entrypoint: >
+      sh -c "
+      ollama serve &
+      sleep 2 &&
+      for m in $$(echo $$MODELS | tr ',' ' '); do
+        echo '>>> Pulling model:' $$m
+        ollama pull $$m
+      done &&
+      wait
+      "
+
+volumes:
+  ollama:
