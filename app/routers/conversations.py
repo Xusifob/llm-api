@@ -1,8 +1,11 @@
 from datetime import datetime
-from typing import List
+import json
+from typing import Any, AsyncGenerator, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Security
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Security
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer
+import httpx
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
@@ -17,6 +20,7 @@ from ..schemas import (
     MessageOut,
     MessageUpdate,
 )
+from ..settings import DEFAULT_MODEL, OLLAMA_HOST
 
 
 bearer_scheme = HTTPBearer()
@@ -258,4 +262,63 @@ def edit_message(
     db.commit()
     db.refresh(msg)
     return msg
+
+
+@router.post(
+    "/{conversation_id}/reply",
+    summary="Generate assistant reply for a conversation",
+)
+async def generate_reply(
+    conversation_id: str,
+    request: Request,
+    body: Dict[str, Any] | None = Body(default=None),
+    db: Session = Depends(get_db),
+):
+    """Call the model with the full conversation and stream back the reply."""
+    user_id = _require_user(request)
+    convo = (
+        db.query(Conversation)
+        .options(joinedload(Conversation.messages))
+        .filter(Conversation.id == conversation_id, Conversation.user_id == user_id)
+        .first()
+    )
+    if not convo:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    model = (body or {}).get("model", DEFAULT_MODEL)
+    messages = [{"role": m.role, "content": m.content} for m in convo.messages]
+
+    async def event_stream() -> AsyncGenerator[bytes, None]:
+        buffer: List[str] = []
+        async with httpx.AsyncClient(timeout=None) as client:
+            req = {"model": model, "messages": messages, "stream": True}
+            async with client.stream("POST", f"{OLLAMA_HOST}/api/chat", json=req) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line:
+                        continue
+                    chunk = json.loads(line)
+                    if chunk.get("done"):
+                        reply = "".join(buffer)
+                        msg = Message(conversation_id=conversation_id, role="assistant", content=reply)
+                        db.add(msg)
+                        db.commit()
+                        db.refresh(msg)
+                        payload = {
+                            "message": MessageOut.model_validate(msg).model_dump(),
+                            "done": True,
+                        }
+                        yield f"data: {json.dumps(payload)}\n\n".encode()
+                        yield b"data: [DONE]\n\n"
+                        return
+                    delta = (
+                        chunk.get("message", {}).get("content")
+                        or chunk.get("response", "")
+                        or ""
+                    )
+                    if delta:
+                        buffer.append(delta)
+                        yield f"data: {json.dumps({'delta': delta})}\n\n".encode()
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
