@@ -1,15 +1,19 @@
 import json, time, uuid
 from typing import Any, Dict, List, AsyncGenerator
 import httpx
-from fastapi import APIRouter, Body, Header, Depends
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Security
+from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
-from ..settings import OLLAMA_HOST, DEFAULT_MODEL, ALLOWED_MODELS
+
 from ..db import get_db
 from ..models import Conversation, Message
-from fastapi import HTTPException, Request
+from ..settings import ALLOWED_MODELS, DEFAULT_MODEL, OLLAMA_HOST
 
-router = APIRouter(tags=["openai"])
+
+bearer_scheme = HTTPBearer()
+
+router = APIRouter(tags=["openai"], dependencies=[Security(bearer_scheme)])
 
 def now_ts() -> int:
     return int(time.time())
@@ -85,6 +89,7 @@ async def completions(body: Dict[str, Any] = Body(...)):
 
 @router.post("/v1/chat/completions")
 async def chat_completions(
+    request: Request,
     body: Dict[str, Any] = Body(...),
     x_conversation_id: str | None = Header(default=None, convert_underscores=False),
     db: Session = Depends(get_db),
@@ -161,10 +166,13 @@ async def chat_completions(
             "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": data.get("done_reason") or "stop"}],
             "usage": usage}
 
-@router.get("/")
+@router.get("/", include_in_schema=False, dependencies=[])
 def root():
-    return JSONResponse({"ok": True, "service": "openai-compatible", "backend": "ollama", "model": DEFAULT_MODEL})
+    return JSONResponse(
+        {"ok": True, "service": "openai-compatible", "backend": "ollama", "model": DEFAULT_MODEL}
+    )
 
-@router.get("/health")
+
+@router.get("/health", dependencies=[])
 def health():
     return {"ok": True}
