@@ -9,25 +9,40 @@ DOCS_WHITELIST = {"/","/auth/signup","/auth/login", "/docs", "/docs/", "/redoc",
 
 
 async def auth_middleware(request: Request, call_next):
-    if request.url.path in DOCS_WHITELIST:
+    # Allow unauthenticated access for docs and CORS preflight requests
+    if request.method == "OPTIONS" or request.url.path in DOCS_WHITELIST:
         return await call_next(request)
 
     auth_header = request.headers.get("authorization")
     if not auth_header or not auth_header.lower().startswith("bearer "):
-        return JSONResponse(status_code=401, content={"error": "Missing Authorization header"})
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Missing Authorization header"},
+            headers={
+                "Access-Control-Allow-Origin": request.headers.get("origin", ""),
+                "Access-Control-Allow-Credentials": "true",
+            },
+        )
     token = auth_header.split(" ", 1)[1]
 
     if OPENAI_API_KEY and token == OPENAI_API_KEY:
-       request.state.user_id = None
-       return await call_next(request)
+        request.state.user_id = None
+        return await call_next(request)
 
     db: Session = SessionLocal()
     try:
-       user = db.query(User).filter(User.api_key == token).first()
-       if not user:
-          return JSONResponse(status_code=401, content={"error": "Invalid API key"})
-       request.state.user_id = user.id
+        user = db.query(User).filter(User.api_key == token).first()
+        if not user:
+            return JSONResponse(
+                status_code=401,
+                content={"error": "Invalid API key"},
+                headers={
+                    "Access-Control-Allow-Origin": request.headers.get("origin", ""),
+                    "Access-Control-Allow-Credentials": "true",
+                },
+            )
+        request.state.user_id = user.id
     finally:
-       db.close()
+        db.close()
 
     return await call_next(request)
