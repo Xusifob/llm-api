@@ -2,5 +2,6 @@
 from .user import User
 from .conversation import Conversation
 from .message import Message
+from .file import File
 
-__all__ = ["User", "Conversation", "Message"]
+__all__ = ["User", "Conversation", "Message", "File"]

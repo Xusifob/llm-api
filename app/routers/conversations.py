@@ -7,7 +7,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from ..db import get_db
-from ..models import Conversation, Message
+from ..models import Conversation, Message, File
 from ..schemas import (
     ConversationCreate,
     ConversationOut,
@@ -69,7 +69,7 @@ def list_conversations(
     q = (
         db.query(Conversation)
         .filter(Conversation.user_id == user_id)
-        .options(joinedload(Conversation.messages))
+        .options(joinedload(Conversation.messages).joinedload(Message.files))
         .order_by(Conversation.created_at.desc())
     )
     if not include_archived:
@@ -92,6 +92,7 @@ def get_conversation(
     user_id = _require_user(request)
     convo = (
         db.query(Conversation)
+        .options(joinedload(Conversation.messages).joinedload(Message.files))
         .filter(Conversation.id == conversation_id, Conversation.user_id == user_id)
         .first()
     )
@@ -173,6 +174,7 @@ def list_messages(
         db.query(Message)
         .filter(Message.conversation_id == conversation_id)
         .order_by(Message.created_at.asc())
+        .options(joinedload(Message.files))
     )
 
     if search:
@@ -202,6 +204,13 @@ def add_message(
     if not convo:
         raise HTTPException(status_code=404, detail="Conversation not found")
     msg = Message(conversation_id=conversation_id, role=body.role, content=body.content)
+    if body.file_ids:
+        files = (
+            db.query(File)
+            .filter(File.id.in_(body.file_ids), File.owner == user_id)
+            .all()
+        )
+        msg.files = files
     db.add(msg)
     db.commit()
     db.refresh(msg)
@@ -237,7 +246,15 @@ def edit_message(
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
 
-    msg.content = body.content
+    if body.content is not None:
+        msg.content = body.content
+    if body.file_ids is not None:
+        files = (
+            db.query(File)
+            .filter(File.id.in_(body.file_ids), File.owner == user_id)
+            .all()
+        )
+        msg.files = files
     db.commit()
     db.refresh(msg)
     return msg

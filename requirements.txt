@@ -6,3 +6,5 @@ SQLAlchemy>=2.0
 psycopg2-binary
 alembic
 passlib[bcrypt]
+fsspec
+s3fs

@@ -2,6 +2,7 @@ import uuid
 from sqlalchemy import String, Text, DateTime, func, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..db import Base
+from .file import message_files
 
 def _uuid() -> str:
     return uuid.uuid4().hex
@@ -16,3 +17,6 @@ class Message(Base):
     created_at: Mapped[str] = mapped_column(DateTime(timezone=False), server_default=func.now(), nullable=False)
 
     conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="messages")
+    files: Mapped[list["File"]] = relationship(
+        "File", secondary=message_files, back_populates="messages"
+    )
