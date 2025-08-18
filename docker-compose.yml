@@ -12,6 +12,7 @@ services:
     depends_on:
       - ollama
     volumes:
+      - pip_volume:/usr/local/lib/python3.x/site-packages
       - ./app/:/app/app
       - ./requirements.txt:/app/requirements.txt
       - ./alembic.ini:/app/alembic.ini
@@ -39,3 +40,4 @@ services:
 
 volumes:
   ollama:
+  pip_volume:

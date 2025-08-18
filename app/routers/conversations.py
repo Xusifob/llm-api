@@ -309,7 +309,6 @@ async def generate_reply(
                             "done": True,
                         }
                         yield f"data: {json.dumps(payload)}\n\n".encode()
-                        yield b"data: [DONE]\n\n"
                         return
                     delta = (
                         chunk.get("message", {}).get("content")

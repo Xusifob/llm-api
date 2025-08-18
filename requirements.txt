@@ -8,3 +8,4 @@ alembic
 passlib[bcrypt]
 fsspec
 s3fs
+python-multipart
