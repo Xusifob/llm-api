@@ -225,6 +225,7 @@ def add_message(
     "/{conversation_id}/messages/{message_id}",
     response_model=MessageOut,
     summary="Edit a message",
+    description="If content or file attachments change, subsequent messages are removed.",
 )
 def edit_message(
     conversation_id: str,
@@ -244,11 +245,15 @@ def edit_message(
 
     msg = (
         db.query(Message)
+        .options(joinedload(Message.files))
         .filter(Message.id == message_id, Message.conversation_id == conversation_id)
         .first()
     )
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
+
+    old_content = msg.content
+    old_file_ids = {f.id for f in msg.files}
 
     if body.content is not None:
         msg.content = body.content
@@ -259,6 +264,23 @@ def edit_message(
             .all()
         )
         msg.files = files
+
+    content_changed = body.content is not None and body.content != old_content
+    files_changed = (
+        body.file_ids is not None and set(body.file_ids) != old_file_ids
+    )
+
+    if content_changed or files_changed:
+        (
+            db.query(Message)
+            .filter(
+                Message.conversation_id == conversation_id,
+                Message.created_at >= msg.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                Message.id != msg.id,
+            )
+            .delete(synchronize_session=False)
+        )
+
     db.commit()
     db.refresh(msg)
     return msg
